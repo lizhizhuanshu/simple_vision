@@ -242,6 +242,8 @@ auto getColorCount##last(lua_State*L)->int{\
   int y1 = luaL_checkinteger(L, originIndex+2);\
   int x2 = luaL_checkinteger(L, originIndex+3);\
   int y2 = luaL_checkinteger(L, originIndex+4);\
+  if(x2 == -1) x2 = bitmap->width_;\
+  if(y2 == -1) y2 = bitmap->height_;\
   checkCoordinates(bitmap, L, x1, y1,x2,y2);\
   auto shiftSum = ensureSimilarityAndToShift(L, originIndex+6);\
   int count = 0;\
@@ -385,6 +387,8 @@ auto findColor##last(lua_State*L)->int{\
   int y = luaL_checkinteger(L, originIndex+2);\
   int x1 = luaL_checkinteger(L, originIndex+3);\
   int y1 = luaL_checkinteger(L, originIndex+4);\
+  if(x1 == -1) x1 = bitmap->width_;\
+  if(y1 == -1) y1 = bitmap->height_;\
   checkCoordinates(bitmap, L, x, y,x1,y1);\
   int shift = ensureSimilarityAndToShift(L, originIndex+6);\
   int order = ensureFindOrder(L, originIndex+7);\
@@ -459,6 +463,8 @@ auto findFeature##last(lua_State*L)->int{\
   int y = luaL_checkinteger(L, originIndex+2);\
   int x1 = luaL_checkinteger(L, originIndex+3);\
   int y1 = luaL_checkinteger(L, originIndex+4);\
+  if(x1 == -1) x1 = bitmap->width_;\
+  if(y1 == -1) y1 = bitmap->height_;\
   checkCoordinates(bitmap, L, x, y, x1, y1);\
   auto sim = ensureSimilarity(L, originIndex+6);\
   int order = ensureFindOrder(L, originIndex+7);\
@@ -672,6 +678,8 @@ auto findImage##last(lua_State*L)->int{\
   int y = luaL_checkinteger(L, originIndex+2);\
   int x1 = luaL_checkinteger(L, originIndex+3);\
   int y1 = luaL_checkinteger(L, originIndex+4);\
+  if(x1 == -1) x1 = bitmap->width_;\
+  if(y1 == -1) y1 = bitmap->height_;\
   checkCoordinates(bitmap, L, x, y, x1, y1);\
   auto sim = ensureSimilarity(L, originIndex+6);\
   int direction = ensureFindOrder(L, originIndex+7);\
@@ -771,11 +779,11 @@ int cloneImage(lua_State*L){
   auto image = lua::toObject<Bitmap>(L, 1);
   auto x1 = luaL_optinteger(L, 2, 0);
   auto y1 = luaL_optinteger(L, 3, 0);
-  auto x2 = luaL_optinteger(L, 4, image->width_-1);
-  auto y2 = luaL_optinteger(L, 5, image->height_-1);
+  auto x2 = luaL_optinteger(L, 4, image->width_);
+  auto y2 = luaL_optinteger(L, 5, image->height_);
   checkCoordinates(image , L, x1,y1,x2,y2);
   auto newImage = luaL_pushNewObject(CommonBitmap, L);
-  newImage->load(image, x1, y1, x2 - x1 + 1, y2 - y1 + 1);
+  newImage->load(image, x1, y1, x2 - x1 , y2 - y1);
   lua_pushboolean(L, true);
   return 1;
 }

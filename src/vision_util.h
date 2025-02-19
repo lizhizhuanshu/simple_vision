@@ -204,10 +204,10 @@ bool upDownLeftRightReadColor(Bitmap* bitmap, int x, int y, int x1, int y1, T1* 
 {
 	const unsigned char* moveVerticalPointer;
 	const unsigned char* moveLinePointer = bitmap->origin_ + y * bitmap->rowShift_ + x * bitmap->pixelStride_;
-	for (int intx = x; intx <= x1; intx++)
+	for (int intx = x; intx < x1; intx++)
 	{
 		moveVerticalPointer = moveLinePointer;
-		for (int inty = y; inty <= y1; inty++)
+		for (int inty = y; inty < y1; inty++)
 		{
 			if (comparator->compare(intx, inty, moveVerticalPointer))
 				return true;
@@ -223,10 +223,10 @@ bool upDownRightLeftReadColor(Bitmap* bitmap, int x, int y, int x1, int y1, T1* 
 {
 	const unsigned char* moveVerticalPointer;
 	const unsigned char* moveLinePointer = bitmap->origin_ + y * bitmap->rowShift_ + x1 * bitmap->pixelStride_;
-	for (int intx = x1; intx >= x; intx--)
+	for (int intx = x1-1; intx >= x; intx--)
 	{
 		moveVerticalPointer = moveLinePointer;
-		for (int inty = y; inty <= y1; inty++)
+		for (int inty = y; inty < y1; inty++)
 		{
 			if (comparator->compare(intx, inty, moveVerticalPointer))
 				return true;
@@ -242,10 +242,10 @@ bool downUpLeftRightReadColor(Bitmap* bitmap, int x, int y, int x1, int y1, T1* 
 {
 	const unsigned char* moveVerticalPointer;
 	const unsigned char* moveLinePointer = bitmap->origin_ + y1 * bitmap->rowShift_ + x * bitmap->pixelStride_;
-	for (int intx = x; intx <= x1; intx++)
+	for (int intx = x; intx < x1; intx++)
 	{
 		moveVerticalPointer = moveLinePointer;
-		for (int inty = y1; inty >= y; inty--)
+		for (int inty = y1-1; inty >= y; inty--)
 		{
 			if (comparator->compare(intx, inty, moveVerticalPointer))
 				return true;
@@ -261,10 +261,10 @@ bool downUpRightLeftReadColor(Bitmap* bitmap, int x, int y, int x1, int y1, T1* 
 {
 	const unsigned char* moveVerticalPointer;
 	const unsigned char* moveLinePointer = bitmap->origin_ + y1 * bitmap->rowShift_ + x1 * bitmap->pixelStride_;
-	for (int intx = x1; intx >= x; intx--)
+	for (int intx = x1-1; intx >= x; intx--)
 	{
 		moveVerticalPointer = moveLinePointer;
-		for (int inty = y1; inty >= y; inty--)
+		for (int inty = y1-1; inty >= y; inty--)
 		{
 			if (comparator->compare(intx, inty, moveVerticalPointer))
 				return true;
@@ -280,10 +280,10 @@ bool leftRightUpDownReadColor(Bitmap* bitmap, int x, int y, int x1, int y1, T1* 
 {
 	const unsigned char* moveLinePointer;
 	const unsigned char* moveVerticalPointer = bitmap->origin_ + y * bitmap->rowShift_ + x * bitmap->pixelStride_;
-	for (int inty = y; inty <= y1; inty++)
+	for (int inty = y; inty < y1; inty++)
 	{
 		moveLinePointer = moveVerticalPointer;
-		for (int intx = x; intx <= x1; intx++)
+		for (int intx = x; intx < x1; intx++)
 		{
 			if (comparator->compare(intx, inty, moveLinePointer))
 				return true;
@@ -301,10 +301,10 @@ inline bool leftRightUpDownReadColor(Bitmap* bitmap, int x, int y, int x1, int y
 	const unsigned char* moveVerticalPointer = bitmap->origin_ + y * bitmap->rowShift_ + x * bitmap->pixelStride_;
 	int xSize = bitmap->pixelStride_ * size;
 	int ySize = bitmap->rowShift_ * size;
-	for (int inty = y; inty <= y1; inty+=size)
+	for (int inty = y; inty < y1; inty+=size)
 	{
 		moveLinePointer = moveVerticalPointer;
-		for (int intx = x; intx <= x1; intx+= size)
+		for (int intx = x; intx < x1; intx+= size)
 		{
 			if (comparator->compare(intx, inty, moveLinePointer))
 				return true;
@@ -322,10 +322,10 @@ bool rightLeftUpDownReadColor(Bitmap* bitmap, int x, int y, int x1, int y1, T1* 
 {
 	const unsigned char* moveLinePointer;
 	const unsigned char* moveVerticalPointer = bitmap->origin_ + y * bitmap->rowShift_ + x1 * bitmap->pixelStride_;
-	for (int inty = y; inty <= y1; inty++)
+	for (int inty = y; inty < y1; inty++)
 	{
 		moveLinePointer = moveVerticalPointer;
-		for (int intx = x1; intx >= x; intx--)
+		for (int intx = x1-1; intx >= x; intx--)
 		{
 			if (comparator->compare(intx, inty, moveLinePointer))
 				return true;
@@ -341,10 +341,10 @@ bool leftRightDownUpReadColor(Bitmap* bitmap, int x, int y, int x1, int y1, T1* 
 {
 	const unsigned char* moveLinePointer;
 	const unsigned char* moveVerticalPointer = bitmap->origin_ + y1 * bitmap->rowShift_ + x * bitmap->pixelStride_;
-	for (int inty = y1; inty >= y; inty--)
+	for (int inty = y1-1; inty >= y; inty--)
 	{
 		moveLinePointer = moveVerticalPointer;
-		for (int intx = x; intx <= x1; intx++)
+		for (int intx = x; intx < x1; intx++)
 		{
 			if (comparator->compare(intx, inty, moveLinePointer))
 				return true;
@@ -360,10 +360,10 @@ bool rightLeftDownUpReadColor(Bitmap* bitmap, int x, int y, int x1, int y1, T1* 
 {
 	const unsigned char* moveLinePointer;
 	const unsigned char* moveVerticalPointer = bitmap->origin_ + y1 * bitmap->rowShift_ + x1 * bitmap->pixelStride_;
-	for (int inty = y1; inty >= y; inty--)
+	for (int inty = y1-1; inty >= y; inty--)
 	{
 		moveLinePointer = moveVerticalPointer;
-		for (int intx = x1; intx >= x; intx--)
+		for (int intx = x1-1; intx >= x; intx--)
 		{
 			if (comparator->compare(intx, inty, moveLinePointer))
 				return true;
@@ -400,18 +400,18 @@ inline bool isInBitmapScope(Bitmap* bitmap, int x, int y)
 
 inline bool isInBitmapScope(Bitmap* bitmap, int x, int y, int x1, int y1)
 {
-	return x1 >= x && y1 >= y && x >= 0 && y >= 0 && x1 < bitmap->width_ && y1 < bitmap->height_;
+	return x1 > x && y1 > y && x >= 0 && y >= 0 && x1 <= bitmap->width_ && y1 <= bitmap->height_;
 }
 
 inline void catCoord(Bitmap* bitmap, int& x, int& y)
 {
 	if (x < 0)
 		x = 0;
-	else if (x >= bitmap->width_)
+	else if (x > bitmap->width_)
 		x = bitmap->width_ - 1;
 	if (y < 0)
 		y = 0;
-	else if (y >= bitmap->height_)
+	else if (y > bitmap->height_)
 		y = bitmap->height_ - 1;
 }
 
@@ -421,10 +421,10 @@ inline void catScope(Bitmap* bitmap, int& x, int& y, int& x1, int& y1)
 		x = 0;
 	if (y < 0)
 		y = 0;
-	if(x1>bitmap->width_)
-		x1= bitmap->width_ - 1;
-	if (y1 >= bitmap->height_)
-		y1 = bitmap->height_ - 1;
+	if(x1>bitmap->width_ || x1 == -1)
+		x1= bitmap->width_;
+	if (y1 >= bitmap->height_ || y1 == -1)
+		y1 = bitmap->height_ ;
 }
 
 
