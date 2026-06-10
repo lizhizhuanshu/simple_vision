@@ -31,7 +31,7 @@ name(lua_upvalueindex(1),0,ByUpData)\
 name(1,1,)
 
 static constexpr char COORDINATES_OVERFLOW[] = "The coordinates are off screen";
-static ResourceProvider resourceProvider = nullptr;
+static VisionResourceProvider resourceProvider = nullptr;
 
 DEFINE_METHOD(getColor);
 DEFINE_METHOD(getColorCount);
