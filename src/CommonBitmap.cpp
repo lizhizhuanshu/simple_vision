@@ -3,6 +3,8 @@
 #include "CommonBitmap.h"
 #include<lodepng.h>
 
+#include <utility>
+
 namespace vision {
 
 CommonBitmap::CommonBitmap()
@@ -22,6 +24,7 @@ bool CommonBitmap::toBoolResult(unsigned int error)
 	}
 	rowShift_ = pixelStride_ * width_;
 	origin_ = data_.data();
+	format_ = PIXEL_RGBA;   // lodepng decodes PNG into RGBA memory
 	return true;
 }
 bool CommonBitmap::load(const unsigned char* data, unsigned int size)
@@ -32,9 +35,22 @@ bool CommonBitmap::load(const unsigned char* data, unsigned int size)
 	return toBoolResult(error);
 }
 
+std::function<bool(const std::string&, std::string&)> CommonBitmap::resourceLoader_;
+
+void CommonBitmap::setResourceLoader(ResourceLoader loader)
+{
+	resourceLoader_ = std::move(loader);
+}
+
 bool CommonBitmap::load(const char* path)
 {
 	data_.clear();
+	if(resourceLoader_ && path && path[0] != '\0' && path[0] != '/'){
+		std::string bytes;
+		if(resourceLoader_(std::string(path), bytes)){
+			return load((const unsigned char*)bytes.data(), (unsigned int)bytes.size());
+		}
+	}
 	auto error = lodepng::decode(this->data_,this->width_,this->height_,path);
 	return toBoolResult(error);
 }
@@ -46,6 +62,7 @@ void CommonBitmap::load(Bitmap * source, int x, int y, int width, int height)
 	height_ = height;
 	pixelStride_ = source->pixelStride_;
 	rowShift_ = pixelStride_ * width_;
+	format_ = source->format_;   // cloned bytes keep the source channel order
 	data_.resize(rowShift_ * height_);
 	origin_ = data_.data();
 	for(int i=0;i<height;i++)

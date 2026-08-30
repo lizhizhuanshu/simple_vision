@@ -26,7 +26,9 @@ auto encodeFeature(FeatureCompositionRoot*feature)->std::string;
 void freeFeatureComposition(FeatureCompositionRoot *feature);
 
 
+template <PixelChannels PC>
 auto isFeature(Bitmap*bitmap,FeatureCompositionRoot*feature,int shiftSum)->bool;
+template <PixelChannels PC>
 auto isFeature(Bitmap *bitmap,int x,int y, FeatureCompositionRoot *feature, int shiftSum)->bool;
 
 } // namespace vision

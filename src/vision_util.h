@@ -5,15 +5,10 @@
 #include <cmath>
 
 namespace vision {
-#ifdef __ANDROID__
-#define UNORDERED_PIXEL 1
-#endif
-#define UNORDERED_PIXEL 1
 
-static int compareColor(const unsigned char* color, const unsigned char* color1, const unsigned char* shift);
-static int compareColor(const unsigned char* color, const unsigned char* color1, const unsigned char* shift, const unsigned char* shift1);
-static int computeColorShiftSum(const unsigned char* color, const unsigned char* color1);
-static int compareColor(const unsigned char* color, const unsigned char* color1, int colorShiftSum);
+// Pixel-vs-pixel and pixel-vs-color comparisons are templates on the
+// channel layout, specialized for RGBA and BGRA at compile time. See
+// int-encoded layouts below (RGBA_LAYOUT / BGRA_LAYOUT).
 
 #ifdef USE_JEMALLOC
 #include <jemalloc/jemalloc.h>
@@ -98,105 +93,34 @@ inline unsigned char* computeCoordColor(Bitmap* bitmap, int x, int y)
 
 
 
-#if UNORDERED_PIXEL
-inline int compareColor(const unsigned char* color, const unsigned char* color1, const unsigned char* shift)
-{
-	return abs(color1[0] - color[2]) <= shift[0] &&
-		abs(color1[1] - color[1]) <= shift[1] &&
-		abs(color1[2] - color[0]) <= shift[2];
-}
+// Channel layout as a C++20 class-type non-type template parameter
+// (P0732R2). Each field is the byte offset of that logical channel inside
+// one pixel: RGBA is 0/1/2, BGRA is 2/1/0. Specializing on this keeps the
+// hot loops free of any runtime lookup.
+struct PixelChannels {
+	int r;
+	int g;
+	int b;
+};
 
-inline int compareColor(const unsigned char* color, const unsigned char* color1, const unsigned char* shift, const unsigned char* shift1)
-{
-	return abs(color1[0] - color[2]) <= (shift[0]+shift1[0]) &&
-		abs(color1[1] - color[1]) <= (shift[1] + shift1[1]) &&
-		abs(color1[2] - color[0]) <= (shift[2] + shift1[2]);
-}
+constexpr PixelChannels RGBA_LAYOUT{0, 1, 2};
+constexpr PixelChannels BGRA_LAYOUT{2, 1, 0};
 
+// Two raw pixel buffers, each with its own compile-time layout: a BGRA
+// screen can be matched against an RGBA template (and vice versa) without
+// converting either buffer.
+template <PixelChannels PM, PixelChannels PMM>
 inline int computeColorShiftSum(const unsigned char* color, const unsigned char* color1)
 {
-	return (abs(color1[0] - color[2]) + abs(color1[1] - color[1]) + abs(color1[2] - color[0]));
+	return (abs(color1[PMM.r] - color[PM.r])
+	      + abs(color1[PMM.g] - color[PM.g])
+	      + abs(color1[PMM.b] - color[PM.b]));
 }
 
-inline int computeColorShiftSum(const unsigned char* color, const unsigned char* color1, const unsigned char* shift)
-{
-	int r = 0;
-	int c = abs(color1[0] - color[2]) - shift[0];
-	if (c > 0) r += c;
-	c = abs(color1[1] - color[1]) - shift[1];
-	if (c > 0) r += c;
-	c = abs(color1[2] - color[0]) - shift[2];
-	if (c > 0) r += c;
-	return r;
-}
-
-
-inline auto computeColorGamutNotShiftSum(const unsigned char* color,const unsigned char* c,const unsigned char* s)->int{
-    int r = 0;
-    int count = s[2]-abs(color[0] - c[2]);
-    if(count>0) r+=count;
-    count = s[1]-abs(color[1] - c[1]);
-    if(count>0) r+=count;
-    count = s[0]-abs(color[2] - c[0]);
-    if(count>0) r+=count;
-    return r;
-}
-
-#else
-inline int compareColor(const unsigned char* color, const unsigned char* color1, const unsigned char* shift)
-{
-	return abs(color1[0] - color[0]) <= shift[0] &&
-		abs(color1[1] - color[1]) <= shift[1] &&
-		abs(color1[2] - color[2]) <= shift[2];
-}
-
-inline int compareColor(const unsigned char* color, const unsigned char* color1, const unsigned char* shift, const unsigned char* shift1)
-{
-	return abs(color1[0] - color[0]) <= (shift[0] + shift1[0]) &&
-		abs(color1[1] - color[1]) <= (shift[1] + shift1[1]) &&
-		abs(color1[2] - color[2]) <= (shift[2] + shift1[2]);
-}
-
-
-
-inline int computeColorShiftSum(const unsigned char* color, const unsigned char* color1)
-{
-	return (abs(color1[0] - color[0]) + abs(color1[1] - color[1]) + abs(color1[2] - color[2]));
-}
-
-inline int computeColorShiftSum(const unsigned char* color, const unsigned char* color1, const unsigned char* shift)
-{
-	int r = 0;
-	int c = abs(color1[0] - color[0]) - shift[0];
-	if (c > 0)
-		r += c;
-	c = abs(color1[1] - color[1]) - shift[1];
-	if (c > 0)
-		r += c;
-	c = abs(color1[2] - color[2]) - shift[2];
-	if (c > 0)
-		r += c;
-	return r;
-}
-
-
-inline auto computeColorGamutNotSum(const unsigned char* color,const unsigned char* c,const unsigned char* s)->int{
-    int r = 0;
-    int count = s[0]-abs(color[0] - c[0]);
-    if(count>0) r+=count;
-    count = s[1]-abs(color[1] - c[1]);
-    if(count>0) r+=count;
-    count = s[2]-abs(color[2] - c[2]);
-    if(count>0) r+=count;
-    return r;
-}
-
-
-#endif
-
+template <PixelChannels PM, PixelChannels PMM>
 inline int compareColor(const unsigned char* color, const unsigned char* color1, int colorShiftSum)
 {
-	return colorShiftSum >= computeColorShiftSum(color, color1);
+	return colorShiftSum >= computeColorShiftSum<PM, PMM>(color, color1);
 }
 
 template<class T1>
@@ -222,7 +146,7 @@ template<class T1>
 bool upDownRightLeftReadColor(Bitmap* bitmap, int x, int y, int x1, int y1, T1* comparator)
 {
 	const unsigned char* moveVerticalPointer;
-	const unsigned char* moveLinePointer = bitmap->origin_ + y * bitmap->rowShift_ + x1 * bitmap->pixelStride_;
+	const unsigned char* moveLinePointer = bitmap->origin_ + y * bitmap->rowShift_ + (x1-1) * bitmap->pixelStride_;
 	for (int intx = x1-1; intx >= x; intx--)
 	{
 		moveVerticalPointer = moveLinePointer;
@@ -241,7 +165,7 @@ template<class T1>
 bool downUpLeftRightReadColor(Bitmap* bitmap, int x, int y, int x1, int y1, T1* comparator)
 {
 	const unsigned char* moveVerticalPointer;
-	const unsigned char* moveLinePointer = bitmap->origin_ + y1 * bitmap->rowShift_ + x * bitmap->pixelStride_;
+	const unsigned char* moveLinePointer = bitmap->origin_ + (y1-1) * bitmap->rowShift_ + x * bitmap->pixelStride_;
 	for (int intx = x; intx < x1; intx++)
 	{
 		moveVerticalPointer = moveLinePointer;
@@ -260,7 +184,7 @@ template<class T1>
 bool downUpRightLeftReadColor(Bitmap* bitmap, int x, int y, int x1, int y1, T1* comparator)
 {
 	const unsigned char* moveVerticalPointer;
-	const unsigned char* moveLinePointer = bitmap->origin_ + y1 * bitmap->rowShift_ + x1 * bitmap->pixelStride_;
+	const unsigned char* moveLinePointer = bitmap->origin_ + (y1-1) * bitmap->rowShift_ + (x1-1) * bitmap->pixelStride_;
 	for (int intx = x1-1; intx >= x; intx--)
 	{
 		moveVerticalPointer = moveLinePointer;
@@ -321,7 +245,7 @@ template<class T1>
 bool rightLeftUpDownReadColor(Bitmap* bitmap, int x, int y, int x1, int y1, T1* comparator)
 {
 	const unsigned char* moveLinePointer;
-	const unsigned char* moveVerticalPointer = bitmap->origin_ + y * bitmap->rowShift_ + x1 * bitmap->pixelStride_;
+	const unsigned char* moveVerticalPointer = bitmap->origin_ + y * bitmap->rowShift_ + (x1-1) * bitmap->pixelStride_;
 	for (int inty = y; inty < y1; inty++)
 	{
 		moveLinePointer = moveVerticalPointer;
@@ -340,7 +264,7 @@ template<class T1>
 bool leftRightDownUpReadColor(Bitmap* bitmap, int x, int y, int x1, int y1, T1* comparator)
 {
 	const unsigned char* moveLinePointer;
-	const unsigned char* moveVerticalPointer = bitmap->origin_ + y1 * bitmap->rowShift_ + x * bitmap->pixelStride_;
+	const unsigned char* moveVerticalPointer = bitmap->origin_ + (y1-1) * bitmap->rowShift_ + x * bitmap->pixelStride_;
 	for (int inty = y1-1; inty >= y; inty--)
 	{
 		moveLinePointer = moveVerticalPointer;
@@ -359,7 +283,7 @@ template<class T1>
 bool rightLeftDownUpReadColor(Bitmap* bitmap, int x, int y, int x1, int y1, T1* comparator)
 {
 	const unsigned char* moveLinePointer;
-	const unsigned char* moveVerticalPointer = bitmap->origin_ + y1 * bitmap->rowShift_ + x1 * bitmap->pixelStride_;
+	const unsigned char* moveVerticalPointer = bitmap->origin_ + (y1-1) * bitmap->rowShift_ + (x1-1) * bitmap->pixelStride_;
 	for (int inty = y1-1; inty >= y; inty--)
 	{
 		moveLinePointer = moveVerticalPointer;

@@ -4,165 +4,101 @@
 #include "vision_feature.h"
 
 namespace vision {
-template<class TColor,class TShift>
+
+// Core scanners. PC is the pixel layout of the searched bitmap; it flows
+// into every pixel-vs-color comparison so RGBA and BGRA screens both run
+// through compile-time-specialized code paths.
+
+template<PixelChannels PC,class TColor>
 class ColorCounter
 {
 	TColor mColor;
-	TShift mShift;
+	int mShift;
 	int count;
 public:
-	ColorCounter(TColor color, TShift shift);
-	bool compare(int x, int y, const unsigned char* color);
-	int getResult();
+	ColorCounter(TColor color, int shift)
+		:mColor(color), mShift(shift), count(0)
+	{
+	}
+	bool compare(int x, int y, const unsigned char* color)
+	{
+		if (compareColor<PC>(color,mColor, mShift))
+			count++;
+		return false;
+	}
+	int getResult()
+	{
+		return count;
+	}
 };
 
-template<class TColor,class TShift>
+template<PixelChannels PC,class TColor>
 class ColorFinder
 {
 	TColor mColor;
-	TShift mShift;
+	int mShift;
 	Point mPoint;
 public:
-	ColorFinder(TColor color, TShift shift);
-	bool compare(int x, int y, const unsigned char* color);
-	Point& getResult();
+	ColorFinder(TColor color, int shift)
+		:mColor(color), mShift(shift)
+	{
+	}
+	bool compare(int x, int y, const unsigned char* color)
+	{
+		if (compareColor<PC>(color,mColor, mShift)) {
+			mPoint.x = x;
+			mPoint.y = y;
+			return true;
+		}
+		return false;
+	}
+	Point& getResult()
+	{
+		return mPoint;
+	}
 };
 
-template<class TFeature,class TShift>
+template <PixelChannels PC>
 class FeatureFinder
 {
 	Bitmap* mBitmap;
-  TFeature mFeature;
-	TShift mShift;
+	FeatureCompositionRoot* mFeature;
+	int mShift;
 	Point mPoint;
 public:
-	FeatureFinder(Bitmap* bitmap,TFeature feature,TShift shift);
-	bool compare(int x, int y, const unsigned char* color);
-	Point& getResult();
+	FeatureFinder(Bitmap* bitmap,FeatureCompositionRoot* feature, int shift)
+		:mBitmap(bitmap),mFeature(feature), mShift(shift)
+	{
+	}
+	bool compare(int x, int y, const unsigned char* color)
+	{
+		if(isFeature<PC>(mBitmap, x, y, mFeature, mShift)){
+			mPoint.x = x;
+			mPoint.y = y;
+			return true;
+		}
+		return false;
+	}
+	Point& getResult()
+	{
+		return mPoint;
+	}
 };
 
+Color getColor(Bitmap* bitmap, int x, int y);
 
-inline Color getColor(Bitmap* bitmap, int x, int y)
+template<PixelChannels PC,class TColor>
+int getColorCount(Bitmap* bitmap, int x, int y, int x1, int y1, TColor color, int shift)
 {
-	Color color;
-	Pixel* pixel = (Pixel*)&color;
-	const unsigned char* c = computeCoordColor(bitmap, x, y);
-	pixel->g = c[1];
-#if UNORDERED_PIXEL
-	pixel->r = c[2];
-	pixel->b = c[0];
-#else
-	pixel->r = c[0];
-	pixel->b = c[2];
-#endif
-	return color;
-}
-
-
-template<class TColor,class TShift>
-int getColorCount(Bitmap* bitmap, int x, int y, int x1, int y1, TColor color, TShift shift);
-
-template<class T>
-int compareColor(Bitmap* bitmap, int x, int y, T color, int colorShiftSum);
-
-
-
-
-template<class TColor,class TShift>
-inline ColorCounter<TColor,TShift>::ColorCounter(TColor color, TShift shift)
-	:mColor(color), mShift(shift), count(0)
-{
-}
-
-template<class TColor,class TShift>
-bool inline ColorCounter<TColor,TShift>::compare(int x, int y, const unsigned char* color)
-{
-	if (compareColor(color,mColor, mShift))
-		count++;
-	return false;
-}
-
-template<class TColor,class TShift>
-inline int ColorCounter<TColor,TShift>::getResult()
-{
-	return count;
-}
-
-
-
-
-template<class TColor,class TShift>
-inline ColorFinder<TColor,TShift>::ColorFinder(TColor color, TShift shift)
-	:mColor(color), mShift(shift)
-{
-}
-
-template<class TColor,class TShift>
-inline bool ColorFinder<TColor,TShift>::compare(int x, int y, const unsigned char* color)
-{
-	if (compareColor(color,mColor, mShift)) {
-		mPoint.x = x;
-		mPoint.y = y;
-		return true;
-	}
-	return false;
-}
-
-template<class TColor,class TShift>
-inline Point& ColorFinder<TColor,TShift>::getResult()
-{
-	return mPoint;
-}
-
-
-
-template<class TFeature,class TShift>
-inline FeatureFinder<TFeature,TShift>::FeatureFinder(
-	Bitmap* bitmap,TFeature feature, TShift shift)
-	:mBitmap(bitmap),mFeature(feature), mShift(shift)
-{
-}
-
-template<class TFeature,class TShift>
-inline bool FeatureFinder<TFeature,TShift>::compare(int x, int y, const unsigned char* color)
-{
-	if(isFeature(mBitmap, x, y, mFeature, mShift)){
-		mPoint.x = x;
-		mPoint.y = y;
-		return true;
-	}
-	return false;
-}
-
-template<class TFeature,class TShift>
-inline Point& FeatureFinder<TFeature,TShift>::getResult()
-{
-	return mPoint;
-}
-
-
-
-
-
-
-template<class TColor,class TShift>
-int getColorCount(Bitmap* bitmap, int x, int y, int x1, int y1, TColor color, TShift shift)
-{
-	ColorCounter<TColor,TShift> counter(color, shift);
+	ColorCounter<PC,TColor> counter(color, shift);
 	upDownLeftRightReadColor(bitmap, x, y, x1, y1, &counter);
 	return counter.getResult();
 }
 
-template<class T>
-int compareColor(Bitmap* bitmap, int x, int y, T color, int colorShiftSum)
+template<PixelChannels PC,class TColor>
+bool findColor(Bitmap* bitmap, int x, int y, int x1, int y1,TColor color, int shift,int order, Point* out)
 {
-	return compareColor(computeCoordColor(bitmap, x, y), color, colorShiftSum);
-}
-
-template<class TColor,class TShift>
-bool findColor(Bitmap* bitmap, int x, int y, int x1, int y1,TColor color, TShift shift,int order, Point* out)
-{
-	ColorFinder<TColor,TShift> finder(color, shift);
+	ColorFinder<PC,TColor> finder(color, shift);
 	bool result = orderFindColor(bitmap, x, y, x1, y1, order, &finder);
 	if (result && out)
 	{
@@ -173,11 +109,10 @@ bool findColor(Bitmap* bitmap, int x, int y, int x1, int y1,TColor color, TShift
 	return result;
 }
 
-
-template<class TFeature, class TShift>
-bool findFeature(Bitmap* bitmap, int x, int y, int x1, int y1,TFeature feature, TShift shift,int direction,Point* out)
+template <PixelChannels PC>
+bool findFeature(Bitmap* bitmap, int x, int y, int x1, int y1,FeatureCompositionRoot* feature, int shift,int direction,Point* out)
 {
-	FeatureFinder<TFeature,TShift> finder(bitmap,feature, shift);
+	FeatureFinder<PC> finder(bitmap,feature, shift);
 	bool result = orderFindColor(bitmap, x, y, x1, y1, direction, &finder);
 	if (result && out)
 	{
@@ -189,6 +124,5 @@ bool findFeature(Bitmap* bitmap, int x, int y, int x1, int y1,TFeature feature, 
 }
 
 }
-
 
 #endif // __VISION_H__

@@ -109,11 +109,12 @@ namespace vision {
   }
 
 
+  template <PixelChannels PC>
   auto isFeature(Bitmap *bitmap, FeatureCompositionRoot *feature, int shiftSum)->bool{
     auto f = feature->data;
     int nowShift = 0;
     while(f != nullptr){
-      nowShift += computeColorShiftSum(computeCoordColor(bitmap, f->x, f->y),f->color);
+      nowShift += computeColorShiftSum<PC>(computeCoordColor(bitmap, f->x, f->y),f->color);
       if(nowShift>shiftSum){
         return false;
       }
@@ -122,6 +123,7 @@ namespace vision {
     return true;
   }
 
+  template <PixelChannels PC>
   auto isFeature(Bitmap *bitmap, int x, int y, FeatureCompositionRoot *feature, int shiftSum)->bool{
     auto f = feature->data;
     int nowShift = 0;
@@ -131,7 +133,7 @@ namespace vision {
       nowX = x+f->x;
       nowY = y+f->y;
       if(isInBitmapScope(bitmap, nowX, nowY))
-        nowShift += computeColorShiftSum(computeCoordColor(bitmap, nowX,nowY),f->color);
+        nowShift += computeColorShiftSum<PC>(computeCoordColor(bitmap, nowX,nowY),f->color);
       else
         nowShift += MAX_COLOR_SHIFT;
       if(nowShift>shiftSum){
@@ -141,4 +143,10 @@ namespace vision {
     }
     return true;
   }
+
+  // Explicit instantiations for both pixel layouts (RGBA_LAYOUT / BGRA_LAYOUT).
+  template auto isFeature<RGBA_LAYOUT>(Bitmap*,FeatureCompositionRoot*,int)->bool;
+  template auto isFeature<BGRA_LAYOUT>(Bitmap*,FeatureCompositionRoot*,int)->bool;
+  template auto isFeature<RGBA_LAYOUT>(Bitmap*,int,int,FeatureCompositionRoot*,int)->bool;
+  template auto isFeature<BGRA_LAYOUT>(Bitmap*,int,int,FeatureCompositionRoot*,int)->bool;
 }
