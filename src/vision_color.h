@@ -81,9 +81,11 @@ inline int pixelChannel(const unsigned char* px, int channel)
 
 template <PixelChannels PC>
 inline auto computeColorShiftSum(const unsigned char* color,Color * c)->int{
-    return abs(pixelChannel<PC>(color,0) - ((c->data >> 16) & 0xFF))
-         + abs(pixelChannel<PC>(color,1) - ((c->data >> 8) & 0xFF))
-         + abs(pixelChannel<PC>(color,2) - (c->data & 0xFF));
+    // int casts: the subtraction must happen in int — unsigned arguments make
+    // bare abs() ambiguous against libc++'s long/long long/float overloads.
+    return abs((int)pixelChannel<PC>(color,0) - (int)((c->data >> 16) & 0xFF))
+         + abs((int)pixelChannel<PC>(color,1) - (int)((c->data >> 8) & 0xFF))
+         + abs((int)pixelChannel<PC>(color,2) - (int)(c->data & 0xFF));
 }
 
 template <PixelChannels PC>

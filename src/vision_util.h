@@ -94,9 +94,11 @@ constexpr PixelChannels BGRA_LAYOUT{2, 1, 0};
 template <PixelChannels PM, PixelChannels PMM>
 inline int computeColorShiftSum(const unsigned char* color, const unsigned char* color1)
 {
-	return (abs(color1[PMM.r] - color[PM.r])
-	      + abs(color1[PMM.g] - color[PM.g])
-	      + abs(color1[PMM.b] - color[PM.b]));
+	// int casts: the subtraction must happen in int — unsigned arguments make
+	// bare abs() ambiguous against libc++'s long/long long/float overloads.
+	return (abs((int)color1[PMM.r] - (int)color[PM.r])
+	      + abs((int)color1[PMM.g] - (int)color[PM.g])
+	      + abs((int)color1[PMM.b] - (int)color[PM.b]));
 }
 
 template <PixelChannels PM, PixelChannels PMM>

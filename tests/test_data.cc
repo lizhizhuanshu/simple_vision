@@ -5,6 +5,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+// mkdtemp lives in unistd.h on Apple platforms (glibc leaks it via stdlib.h).
+#include <unistd.h>
 
 namespace vision_test {
 
