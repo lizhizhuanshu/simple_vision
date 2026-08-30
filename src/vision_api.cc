@@ -13,11 +13,6 @@ namespace vision {
 
 // ---- internal helpers ------------------------------------------------------
 
-static bool checkShift(int shift)
-{
-	return shift >= 0;
-}
-
 int similarityToShift(double similarity)
 {
 	if(std::isnan(similarity) || similarity < 0 || similarity > 1){
@@ -92,18 +87,52 @@ static bool decodeColorString(const char* str, ColorCompositionGuard& guard)
 
 // Screen-layout dispatch: the public API is format-agnostic; each entry
 // point branches once on bitmap->format_ and lands in a fully specialized
-// code path.
-// fn must itself be a template <PixelChannels PC> callable; because C++17 has no
-// templated lambdas, dispatch is done with an explicit helper macro or by
-// calling fn with a std::integral_constant tag that carries the layout as
-// a compile-time value.
+// code path. Callers take the layout with a templated lambda:
+//   dispatchLayout(bm, [&]<PixelChannels PC>(LayoutTag<PC>) { ... })
+template <PixelChannels PC>
+using LayoutTag = std::integral_constant<PixelChannels, PC>;
+
 template<class Func>
 static auto dispatchLayout(Bitmap* bitmap, Func&& fn)
 {
 	if(bitmap->format_ == PIXEL_BGRA){
-		return fn(std::integral_constant<PixelChannels, BGRA_LAYOUT>{});
+		return fn(LayoutTag<BGRA_LAYOUT>{});
 	}
-	return fn(std::integral_constant<PixelChannels, RGBA_LAYOUT>{});
+	return fn(LayoutTag<RGBA_LAYOUT>{});
+}
+
+// Shared skeleton for the four color APIs: validate the pixel, decode the
+// color string once (single-color fast path avoids any heap allocation),
+// dispatch on the screen layout, then hand the decoded color object to the
+// caller's templated lambda. `fail` is the API-specific error value.
+template<class Fail, class Func>
+static auto withDecodedColor(Bitmap* bitmap, int x, int y, const char* color,
+                             double similarity, Fail fail, Func&& fn)
+{
+	int shift = similarityToShift(similarity);
+	if(shift < 0 || color == nullptr || !isInBitmapScope(bitmap, x, y)){
+		return fail;
+	}
+	size_t size = 0;
+	while(color[size] != '\0') size++;
+	if(size == 6){
+		Color alone;
+		if(decodeColor(color, (int)size, &alone)){
+			return dispatchLayout(bitmap, [&]<PixelChannels PC>(LayoutTag<PC>){
+				return fn(LayoutTag<PC>{}, &alone, shift);
+			});
+		}
+		return fail;
+	}
+	ColorCompositionGuard guard(nullptr);
+	if(!decodeColorString(color, guard)){
+		return fail;
+	}
+	return dispatchLayout(bitmap, [&]<PixelChannels PC>(LayoutTag<PC>){
+		return dispatchComposition(guard.get(), [&](auto c){
+			return fn(LayoutTag<PC>{}, c, shift);
+		});
+	});
 }
 
 template<PixelChannels PC,class TColor>
@@ -191,8 +220,7 @@ Color getColor(Bitmap* bitmap, int x, int y)
 	// Assemble the logical 0xRRGGBB directly instead of reinterpreting
 	// through Pixel (whose memory order contradicts its field names on
 	// little-endian, which used to force a channel-swap trick).
-	return dispatchLayout(bitmap, [&](auto pc){
-		constexpr PixelChannels PC = decltype(pc)::value;
+	return dispatchLayout(bitmap, [&]<PixelChannels PC>(LayoutTag<PC>){
 		const unsigned char* c = computeCoordColor(bitmap, x, y);
 		unsigned r = c[PC.r];
 		unsigned g = c[PC.g];
@@ -205,64 +233,23 @@ Color getColor(Bitmap* bitmap, int x, int y)
 
 bool isColor(Bitmap* bitmap, int x, int y, const char* color, double similarity)
 {
-	int shift = similarityToShift(similarity);
-	if(shift < 0 || !isInBitmapScope(bitmap, x, y)){
-		return false;
-	}
-	if(color == nullptr){
-		return false;
-	}
-	// single fast path for plain hex
-	size_t size = 0;
-	while(color[size] != '\0') size++;
-	if(size == 6){
-		Color alone;
-		if(decodeColor(color, (int)size, &alone)){
-			return dispatchLayout(bitmap, [&](auto pc){
-				constexpr PixelChannels PC = decltype(pc)::value;
-				return compareColorAt<PC>(bitmap, x, y, &alone, shift);
-			});
-		}
-		return false;
-	}
-	ColorCompositionGuard guard(nullptr);
-	if(!decodeColorString(color, guard)){
-		return false;
-	}
-	return dispatchLayout(bitmap, [&](auto pc){
-		constexpr PixelChannels PC = decltype(pc)::value;
-		return dispatchComposition(guard.get(), [&](auto c){
+	return withDecodedColor(bitmap, x, y, color, similarity, false,
+		[&]<PixelChannels PC>(LayoutTag<PC>, auto c, int shift){
 			return compareColorAt<PC>(bitmap, x, y, c, shift);
 		});
-	});
 }
 
 int whichColor(Bitmap* bitmap, int x, int y, const char* color, double similarity)
 {
-	int shift = similarityToShift(similarity);
-	if(shift < 0 || !isInBitmapScope(bitmap, x, y) || color == nullptr){
-		return 0;
-	}
-	size_t size = 0;
-	while(color[size] != '\0') size++;
-	if(size == 6){
-		Color alone;
-		if(decodeColor(color, (int)size, &alone)){
-			return dispatchLayout(bitmap, [&](auto pc){
-				constexpr PixelChannels PC = decltype(pc)::value;
-				return whichColorAt<PC>(bitmap, x, y, &alone, shift) ? 1 : 0;
-			});
-		}
-		return 0;
-	}
-	ColorCompositionGuard guard(nullptr);
-	if(!decodeColorString(color, guard)){
-		return 0;
-	}
-	return dispatchLayout(bitmap, [&](auto pc){
-		constexpr PixelChannels PC = decltype(pc)::value;
-		return whichColorAt<PC>(bitmap, x, y, guard.get(), shift);
-	});
+	return withDecodedColor(bitmap, x, y, color, similarity, 0,
+		[&]<PixelChannels PC>(LayoutTag<PC>, auto c, int shift){
+			int r = whichColorAt<PC>(bitmap, x, y, c, shift);
+			if constexpr (std::is_same_v<decltype(c), ColorComposition*>){
+				return r;          // composition: 1-based index already
+			}else{
+				return r ? 1 : 0;  // single node: boolean
+			}
+		});
 }
 
 static void normalizeRect(Bitmap* bitmap, int& x, int& y, int& x2, int& y2)
@@ -274,71 +261,27 @@ static void normalizeRect(Bitmap* bitmap, int& x, int& y, int& x2, int& y2)
 int getColorCount(Bitmap* bitmap, int x, int y, int x2, int y2,
                   const char* color, double similarity)
 {
-	int shift = similarityToShift(similarity);
-	if(shift < 0 || color == nullptr){
-		return -1;
-	}
 	normalizeRect(bitmap, x, y, x2, y2);
 	if(!isInBitmapScope(bitmap, x, y, x2, y2)){
 		return -1;
 	}
-	size_t size = 0;
-	while(color[size] != '\0') size++;
-	if(size == 6){
-		Color alone;
-		if(decodeColor(color, (int)size, &alone)){
-			return dispatchLayout(bitmap, [&](auto pc){
-				constexpr PixelChannels PC = decltype(pc)::value;
-				return countColorRect<PC>(bitmap, x, y, x2, y2, &alone, shift);
-			});
-		}
-		return -1;
-	}
-	ColorCompositionGuard guard(nullptr);
-	if(!decodeColorString(color, guard)){
-		return -1;
-	}
-	return dispatchLayout(bitmap, [&](auto pc){
-		constexpr PixelChannels PC = decltype(pc)::value;
-		return dispatchComposition(guard.get(), [&](auto c){
+	return withDecodedColor(bitmap, x, y, color, similarity, -1,
+		[&]<PixelChannels PC>(LayoutTag<PC>, auto c, int shift){
 			return countColorRect<PC>(bitmap, x, y, x2, y2, c, shift);
 		});
-	});
 }
 
 FindResult findColor(Bitmap* bitmap, int x, int y, int x2, int y2,
                      const char* color, double similarity, int order)
 {
-	int shift = similarityToShift(similarity);
-	if(shift < 0 || color == nullptr){
-		return FindResult(false);
-	}
 	normalizeRect(bitmap, x, y, x2, y2);
 	if(!isInBitmapScope(bitmap, x, y, x2, y2)){
 		return FindResult(false);
 	}
-	size_t size = 0;
-	while(color[size] != '\0') size++;
-	if(size == 6){
-		Color alone;
-		if(decodeColor(color, (int)size, &alone)){
-			return dispatchLayout(bitmap, [&](auto pc){
-				constexpr PixelChannels PC = decltype(pc)::value;
-				return findColorRect<PC>(bitmap, x, y, x2, y2, &alone, shift, order);
-			});
-		}
-		return FindResult(false);
-	}
-	ColorCompositionGuard guard(nullptr);
-	if(!decodeColorString(color, guard)){
-		return FindResult(false);
-	}
-	return dispatchLayout(bitmap, [&](auto pc){
-		constexpr PixelChannels PC = decltype(pc)::value;
-		return dispatchComposition(guard.get(), [&](auto c){
+	return withDecodedColor(bitmap, x, y, color, similarity, FindResult(false),
+		[&]<PixelChannels PC>(LayoutTag<PC>, auto c, int shift){
 			return findColorRect<PC>(bitmap, x, y, x2, y2, c, shift, order);
 		});
-	});
 }
 
 // ---- features --------------------------------------------------------------
@@ -358,8 +301,7 @@ bool isFeature(Bitmap* bitmap, int anchorX, int anchorY,
 	}
 	FeatureGuard guard(&root);
 	long long budget = featureShiftBudget(root, similarity);
-	return dispatchLayout(bitmap, [&](auto pc){
-		constexpr PixelChannels PC = decltype(pc)::value;
+	return dispatchLayout(bitmap, [&]<PixelChannels PC>(LayoutTag<PC>){
 		return vision::isFeature<PC>(bitmap, anchorX, anchorY, &root, (int)budget);
 	});
 }
@@ -383,8 +325,7 @@ FindResult findFeature(Bitmap* bitmap, int x, int y, int x2, int y2,
 	}
 	FeatureGuard guard(&root);
 	long long budget = featureShiftBudget(root, similarity);
-	return dispatchLayout(bitmap, [&](auto pc){
-		constexpr PixelChannels PC = decltype(pc)::value;
+	return dispatchLayout(bitmap, [&]<PixelChannels PC>(LayoutTag<PC>){
 		FeatureFinder<PC> finder(bitmap, &root,
 		                         (int)std::min<long long>(budget, INT_MAX));
 		bool result = orderFindColor(bitmap, x, y, x2, y2, order, &finder);
@@ -420,56 +361,49 @@ int whichImage(Bitmap* bitmap, int x, int y,
 	return 0;
 }
 
-static FindResult findImageOne(Bitmap* bitmap, int x, int y, int x2, int y2,
-                               Bitmap* templateImage, double similarity, int order)
-{
-	class Finder{
-		Bitmap* mBitmap;
-		Bitmap* tBitmap;
-		long long mShiftSum;
-		Point result;
-	public:
-		Finder(Bitmap* b, Bitmap* t, long long shiftSum)
-			: mBitmap(b), tBitmap(t), mShiftSum(shiftSum) {}
-		bool compare(int px, int py, const unsigned char* color){
-			if(vision::isImage(mBitmap, px, py, tBitmap, (int)std::min<long long>(mShiftSum, INT_MAX))){
-				result.x = px;
-				result.y = py;
-				return true;
-			}
-			return false;
-		}
-		Point& getResult(){ return result; }
-	};
-	long long budget = imageShiftBudget(templateImage, similarity);
-	Finder finder(bitmap, templateImage, budget);
-	bool found = orderFindColor(bitmap, x, y, x2, y2, order, &finder);
-	FindResult r(found);
-	if(found){
-		r.point = finder.getResult();
-		r.index = 1;
-	}
-	return r;
-}
-
+// Single-pass multi-template scan: one walk over the screen, every
+// candidate position tries all templates (first match wins). N templates
+// cost one traversal, not N. The matcher is stack-constructed with the
+// screen layout bound, so the scan loop stays fully inlined.
 FindResult findImage(Bitmap* bitmap, int x, int y, int x2, int y2,
                      const std::vector<CommonBitmap>& templates,
                      double similarity, int order)
 {
 	FindResult result(false);
-	if(templates.empty()){
+	int shift = similarityToShift(similarity);
+	if(templates.empty() || shift < 0){
 		return result;
 	}
 	normalizeRect(bitmap, x, y, x2, y2);
 	if(!isInBitmapScope(bitmap, x, y, x2, y2)){
 		return result;
 	}
-	for(size_t i = 0; i < templates.size(); i++){
-		auto r = findImageOne(bitmap, x, y, x2, y2,
-		                      (Bitmap*)&templates[i], similarity, order);
-		if(r.found){
-			r.index = (int)i + 1;
-			return r;
+	std::vector<Bitmap*> tplPtrs;
+	std::vector<int> budgets;
+	tplPtrs.reserve(templates.size());
+	budgets.reserve(templates.size());
+	for(auto& t : templates){
+		long long b = imageShiftBudget((Bitmap*)&t, similarity);
+		if(b > INT_MAX) b = INT_MAX;
+		if(b < 0) b = 0;
+		tplPtrs.push_back((Bitmap*)&t);
+		budgets.push_back((int)b);
+	}
+	if(bitmap->format_ == PIXEL_BGRA){
+		MultiTemplateMatcher<BGRA_LAYOUT> matcher(bitmap, tplPtrs.data(),
+		                                          (int)tplPtrs.size(), budgets.data());
+		if(orderFindColor(bitmap, x, y, x2, y2, order, &matcher)){
+			result.found = true;
+			result.point = matcher.getResult();
+			result.index = matcher.getHit() + 1;
+		}
+	}else{
+		MultiTemplateMatcher<RGBA_LAYOUT> matcher(bitmap, tplPtrs.data(),
+		                                          (int)tplPtrs.size(), budgets.data());
+		if(orderFindColor(bitmap, x, y, x2, y2, order, &matcher)){
+			result.found = true;
+			result.point = matcher.getResult();
+			result.index = matcher.getHit() + 1;
 		}
 	}
 	return result;

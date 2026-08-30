@@ -34,6 +34,11 @@ namespace vision {
     return true;
   }
 
+  // FeatureComposition stores anchor offsets as int16_t; reject values that
+  // would silently truncate (a 40000 would wrap to -25536 and quietly match
+  // the wrong screen region).
+  constexpr int MAX_FEATURE_OFFSET = 32767;
+
   auto decodeFeature(const char *str, int size, FeatureCompositionRoot *feature)->bool{
     int x,y;
     int pos = 0;
@@ -47,9 +52,11 @@ namespace vision {
     bool result =false;
     while (pos<size) {
       if(!toInt(str, size, pos, x))break;
+      if(x > MAX_FEATURE_OFFSET || x < -MAX_FEATURE_OFFSET-1)break;
       if(pos>=size || str[pos]!='|')break;
       pos++;
       if(!toInt(str, size, pos, y))break;
+      if(y > MAX_FEATURE_OFFSET || y < -MAX_FEATURE_OFFSET-1)break;
       if(pos>=size || str[pos]!='|')break;
       pos++;
       color = decodeColor(str+pos, size-pos,&cPos);

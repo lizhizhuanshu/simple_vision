@@ -56,8 +56,6 @@ static bool downUpRightLeftReadColor(Bitmap* bitmap, int x, int y, int x1, int y
 template<class T1>
 static bool leftRightUpDownReadColor(Bitmap* bitmap, int x, int y, int x1, int y1, T1* comparator);
 template<class T1>
-static bool leftRightUpDownReadColor(Bitmap* bitmap, int x, int y, int x1, int y1,int size, T1* comparator);
-template<class T1>
 static bool rightLeftUpDownReadColor(Bitmap* bitmap, int x, int y, int x1, int y1, T1* comparator);
 template<class T1>
 static bool leftRightDownUpReadColor(Bitmap* bitmap, int x, int y, int x1, int y1, T1* comparator);
@@ -69,22 +67,6 @@ static bool orderFindColor(Bitmap* bitmap, int x, int y, int x1, int y1, int rea
 
 static bool isInBitmapScope(Bitmap* bitmap, int x, int y);
 static bool isInBitmapScope(Bitmap* bitmap, int x, int y, int x1, int y1);
-
-inline void checkRect(Bitmap* bitmap, int& x, int& y, int& x1, int& y1)
-{
-	if (x < 0)
-		x = 0;
-	else if (x >= bitmap->width_)
-		x = bitmap->width_ - 1;
-	if (x1 < x)
-		x1 = x;
-	if (y < 0)
-		y = 0;
-	else if (y >= bitmap->height_)
-		y = bitmap->height_ - 1;
-	if (y1 < y)
-		y1 = y;
-}
 
 inline unsigned char* computeCoordColor(Bitmap* bitmap, int x, int y)
 {
@@ -122,6 +104,70 @@ inline int compareColor(const unsigned char* color, const unsigned char* color1,
 {
 	return colorShiftSum >= computeColorShiftSum<PM, PMM>(color, color1);
 }
+
+// Single-template match for one screen/template layout pair, fully
+// specialized; the pixel loop has no runtime dispatch.
+template <PixelChannels PC, PixelChannels TC>
+inline bool isImagePair(Bitmap *bitmap, int x, int y, Bitmap *templateImage, int shiftSum){
+  if(x<0 || y<0) return false;
+  if(x+templateImage->width_>bitmap->width_ || y+templateImage->height_>bitmap->height_) return false;
+  int nowShift = 0;
+  for(int i=0;i<templateImage->height_;i++){
+    for(int j=0;j<templateImage->width_;j++){
+      nowShift += computeColorShiftSum<PC,TC>(computeCoordColor(bitmap,x+j,y+i),computeCoordColor(templateImage,j,i));
+      if(nowShift>shiftSum){
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+// Tries every template at a candidate screen position; first match wins.
+// Stack-constructed by the scan entry point with the screen layout bound,
+// so compare() inlines into the scan loop with no virtual dispatch.
+// Template layouts are read per template (a template list may mix RGBA and
+// BGRA entries); each pair resolves through the inline compare above.
+template <PixelChannels PC>
+class MultiTemplateMatcher {
+	Bitmap* mScreen;
+	Bitmap** mTemplates;
+	int mCount;
+	const int* mShiftSums;
+	Point mPoint;
+	int mHit;
+public:
+	MultiTemplateMatcher(Bitmap* screen, Bitmap** templates, int count, const int* shiftSums)
+		: mScreen(screen), mTemplates(templates), mCount(count),
+		  mShiftSums(shiftSums), mHit(-1) {}
+	bool compare(int px, int py, const unsigned char* color){
+		for(int i = 0; i < mCount; i++){
+			Bitmap* t = mTemplates[i];
+			if(px + t->width_ > (int)mScreen->width_ ||
+			   py + t->height_ > (int)mScreen->height_){
+				continue;
+			}
+			if(t->format_ == PIXEL_BGRA){
+				if(isImagePair<PC, BGRA_LAYOUT>(mScreen, px, py, t, mShiftSums[i])){
+					mHit = i;
+					mPoint.x = px;
+					mPoint.y = py;
+					return true;
+				}
+			}else{
+				if(isImagePair<PC, RGBA_LAYOUT>(mScreen, px, py, t, mShiftSums[i])){
+					mHit = i;
+					mPoint.x = px;
+					mPoint.y = py;
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+	Point& getResult(){ return mPoint; }
+	int getHit() const { return mHit; }
+};
 
 template<class T1>
 bool upDownLeftRightReadColor(Bitmap* bitmap, int x, int y, int x1, int y1, T1* comparator)
@@ -219,29 +265,6 @@ bool leftRightUpDownReadColor(Bitmap* bitmap, int x, int y, int x1, int y1, T1* 
 }
 
 template<class T1>
-inline bool leftRightUpDownReadColor(Bitmap* bitmap, int x, int y, int x1, int y1, int size, T1* comparator)
-{
-	const unsigned char* moveLinePointer;
-	const unsigned char* moveVerticalPointer = bitmap->origin_ + y * bitmap->rowShift_ + x * bitmap->pixelStride_;
-	int xSize = bitmap->pixelStride_ * size;
-	int ySize = bitmap->rowShift_ * size;
-	for (int inty = y; inty < y1; inty+=size)
-	{
-		moveLinePointer = moveVerticalPointer;
-		for (int intx = x; intx < x1; intx+= size)
-		{
-			if (comparator->compare(intx, inty, moveLinePointer))
-				return true;
-			moveLinePointer += xSize;
-		}
-		moveVerticalPointer += ySize;
-	}
-	return false;
-}
-
-
-
-template<class T1>
 bool rightLeftUpDownReadColor(Bitmap* bitmap, int x, int y, int x1, int y1, T1* comparator)
 {
 	const unsigned char* moveLinePointer;
@@ -327,53 +350,6 @@ inline bool isInBitmapScope(Bitmap* bitmap, int x, int y, int x1, int y1)
 	return x1 > x && y1 > y && x >= 0 && y >= 0 && x1 <= bitmap->width_ && y1 <= bitmap->height_;
 }
 
-inline void catCoord(Bitmap* bitmap, int& x, int& y)
-{
-	if (x < 0)
-		x = 0;
-	else if (x > bitmap->width_)
-		x = bitmap->width_ - 1;
-	if (y < 0)
-		y = 0;
-	else if (y > bitmap->height_)
-		y = bitmap->height_ - 1;
-}
-
-inline void catScope(Bitmap* bitmap, int& x, int& y, int& x1, int& y1)
-{
-	if (x < 0)
-		x = 0;
-	if (y < 0)
-		y = 0;
-	if(x1>bitmap->width_ || x1 == -1)
-		x1= bitmap->width_;
-	if (y1 >= bitmap->height_ || y1 == -1)
-		y1 = bitmap->height_ ;
-}
-
-
-inline int computeCharBit(int c)
-{
-    if (c <= '9')
-        c -= '0';
-    else if (c <= 'F')
-        c -= 55;
-    else
-        c -= 87;
-    return c;
-}
-
-inline int toIntColor(const char* s)
-{
-    int r = 0;
-    r |= (computeCharBit(s[0]) << 20);
-    r |= (computeCharBit(s[1]) << 16);
-    r |= (computeCharBit(s[2]) << 12);
-    r |= (computeCharBit(s[3]) << 8);
-    r |= (computeCharBit(s[4]) << 4);
-    r |= (computeCharBit(s[5]) << 0);
-    return r;
-}
 }
 
 #endif //__VISION_UTIL_H__

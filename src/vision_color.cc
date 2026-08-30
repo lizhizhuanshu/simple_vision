@@ -34,28 +34,72 @@ auto decodeColor(const char* str,int size,Color*color)->bool{
 }
 
 auto decodeColor(const char* str,int size,ColorNot *color)->bool{
-  if(size < COLOR_NOT_STR_SIZE && str[0] !='!') return false;
+  // Reject when too short OR not the "!" form; the old `&&` let short
+  // "!-prefixed" strings through and read past the buffer in rawDecodeColor.
+  if(size < COLOR_NOT_STR_SIZE || str[0] !='!') return false;
   return rawDecodeColor(str+1,color->data);
 }
 
 auto decodeColor(const char* str,int size,ColorGamut*color)->bool{
-  if(size < COLOR_GAMUT_STR_SIZE && str[6]!='-') return false;
+  if(size < COLOR_GAMUT_STR_SIZE || str[6]!='-') return false;
   if(!rawDecodeColor(str,color->color)) return false;
   return rawDecodeColor(str+ALONE_COLOR_STR_SIZE+1,color->shift);
 }
 
 auto decodeColor(const char* str,int size,ColorGamutNot*color)->bool{
-  if(size < COLOR_GAMUT_NOT_STR_SIZE && str[0] !='!' &&  str[7]!='-') return false;
+  if(size < COLOR_GAMUT_NOT_STR_SIZE || str[0] !='!' ||  str[7]!='-') return false;
   if(!rawDecodeColor(str+1,color->color)) return false;
   return rawDecodeColor(str+ALONE_COLOR_STR_SIZE+2,color->shift);
 }
 
-void freeColorComposition(ColorComposition *color){
+// Node pool: every composition node allocation is one of 20/24 bytes, so a
+// single 24-byte free list serves all of them. decode/decode/free run on
+// every color-API call in polling loops; the pool turns repeated
+// malloc/free pairs into a pointer pop/push.
+namespace {
+  constexpr size_t NODE_SIZE = sizeof(ColorGamutNot)+sizeof(ColorComposition);  // 24, the largest
+  struct NodePool {
+    void* head = nullptr;   // intrusive: first 8 bytes of each free node
+    ~NodePool(){
+      while(head){
+        void* next = *(void**)head;
+        free(head);
+        head = next;
+      }
+    }
+    void* alloc(){
+      if(head){
+        void* p = head;
+        head = *(void**)head;
+        return p;
+      }
+      return malloc(NODE_SIZE);
+    }
+    void release(void* p){
+      if(p == nullptr) return;
+      *(void**)p = head;
+      head = p;
+    }
+  };
+  thread_local NodePool g_nodePool;
+}
+
+void* compositionNodeAlloc(){
+  return g_nodePool.alloc();
+}
+
+void compositionNodeRelease(ColorComposition *color){
   while(color != nullptr){
     auto next = color->next;
-    MY_FREE(color);
+    g_nodePool.release(color);
     color = next;
   }
+}
+
+// Public entry kept for feature composition (vision_feature.cc) and the
+// API-layer guards; all composition nodes now come from and return to the pool.
+void freeColorComposition(ColorComposition *color){
+  compositionNodeRelease(color);
 }
 
 
@@ -73,7 +117,7 @@ auto decodeColor(const char* str,int size,int*pos)->ColorComposition*{
         break;
       }
       if(remain>= COLOR_GAMUT_NOT_STR_SIZE && str[index+7] == '-'){
-        ColorComposition * data = (ColorComposition*)MY_MALLOC(sizeof(ColorGamutNot)+sizeof(ColorComposition));
+        ColorComposition * data = (ColorComposition*)compositionNodeAlloc();
         if(data == nullptr) {
           result = false;
           break;
@@ -88,7 +132,7 @@ auto decodeColor(const char* str,int size,int*pos)->ColorComposition*{
         }
         index += COLOR_GAMUT_NOT_STR_SIZE;
       }else{
-        ColorComposition * data = (ColorComposition*)MY_MALLOC(sizeof(ColorNot)+sizeof(ColorComposition));
+        ColorComposition * data = (ColorComposition*)compositionNodeAlloc();
         if(data == nullptr) {
           result = false;
           break;
@@ -103,12 +147,8 @@ auto decodeColor(const char* str,int size,int*pos)->ColorComposition*{
         }
         index += COLOR_NOT_STR_SIZE;
       }
-    }else if(str[index+6] == '-'){
-      if(remain < COLOR_GAMUT_STR_SIZE){
-        result = false;
-        break;
-      }
-      ColorComposition * data = (ColorComposition*)MY_MALLOC(sizeof(ColorGamut)+sizeof(ColorComposition));
+    }else if(remain >= COLOR_GAMUT_STR_SIZE && str[index+6] == '-'){
+      ColorComposition * data = (ColorComposition*)compositionNodeAlloc();
       if(data == nullptr) {
         result = false;
         break;
@@ -127,7 +167,7 @@ auto decodeColor(const char* str,int size,int*pos)->ColorComposition*{
         result = false;
         break;
       }
-      ColorComposition * data = (ColorComposition*)MY_MALLOC(sizeof(Color)+sizeof(ColorComposition));
+      ColorComposition * data = (ColorComposition*)compositionNodeAlloc();
       if(data == nullptr) {
         result = false;
         break;
@@ -144,13 +184,19 @@ auto decodeColor(const char* str,int size,int*pos)->ColorComposition*{
     }
     if(index<size){
       if(str[index] != '|'){
-        break;
+        break;   // trailing garbage (e.g. "!ff0000-"): stop, caller decides
       }
       index++;
     }
   }
+  // A short non-empty tail (e.g. the trailing "-" of "!ff0000-") means the
+  // input was malformed; accepting it as a prefix would silently change
+  // meaning. Reject unless the tail is empty or a full next segment.
+  if(result && index < size && size - index < ALONE_COLOR_STR_SIZE){
+    result = false;
+  }
   if (!result) {
-    freeColorComposition(root.next);
+    compositionNodeRelease(root.next);
     return nullptr;
   }
   if(pos != nullptr){

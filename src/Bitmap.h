@@ -1,7 +1,11 @@
 #ifndef __VISION_BITMAP_H__
 #define __VISION_BITMAP_H__
 
+#include <vector>
+
 namespace vision {
+
+class Bitmap;
 
 // In-memory channel order of the pixel buffer.
 //
@@ -24,7 +28,15 @@ public:
 	PixelFormat format_ = PIXEL_RGBA;
 };
 
+// Template matching. Screen and template layouts may differ (BGRA screen x
+// RGBA template decoded from PNG is the classic Android mix); the pair is
+// dispatched once per call, not per candidate position.
 bool isImage(Bitmap*bitmap,int x,int y,Bitmap* templateImage,int shiftSum);
+
+// Multi-template scan support: try every template at a candidate screen
+// position, first match wins. Defined in vision_util.h (MultiTemplateMatcher)
+// so the finder can be constructed on the stack and fully inlined into the
+// scan loop.
 
 } //namespace vision
 
